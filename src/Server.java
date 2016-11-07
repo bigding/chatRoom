@@ -1,3 +1,5 @@
+import com.sun.rmi.rmid.ExecPermission;
+
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -5,11 +7,13 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 
 public class Server{
+    int clientCount=0;
     private JFrame frame1;
     private JTextArea contentArea;
     private JTextField txt_port;
@@ -25,6 +29,7 @@ public class Server{
     private DefaultListModel listModel;
     private List list=new ArrayList();
     private ServerSocket wSocket;
+    ForAClientThread forAClientThread;
 
     /*主函数*/
     public static void main(String args[]) throws Exception {
@@ -49,7 +54,7 @@ public class Server{
         northPanel.add(txt_port);
         northPanel.add(new JLabel("端口"));
         northPanel.add(btn_start);
-        northPanel.add(btn_stop);
+//        northPanel.add(btn_stop);
         northPanel.setBorder(new TitledBorder("配置信息"));
 
         southPanel = new JPanel(new BorderLayout());
@@ -60,9 +65,6 @@ public class Server{
 
         rightPanel = new JScrollPane(contentArea);
         rightPanel.setBorder(new TitledBorder("聊天消息"));
-
-
-
         frame1.setLayout(new BorderLayout());
         frame1.add(rightPanel, "Center");
         frame1.add(southPanel, "South");
@@ -81,6 +83,21 @@ public class Server{
         btn_send.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 String message = txt_message.getText().trim();
+                if(message == null || message.equals("")){
+                    contentArea.append("请输入信息再发送\r\n");
+                    return;
+                }
+                message = "server says:"+message;
+                send(list,message);
+            }
+        });
+        txt_message.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent arg0) {
+                String message = txt_message.getText().trim();
+                if(message == null || message.equals("")){
+                    contentArea.append("请输入信息再发送\r\n");
+                    return;
+                }
                 message = "server says:"+message;
                 send(list,message);
             }
@@ -100,17 +117,29 @@ public class Server{
                 txt_port.setEnabled(false);
             }
         });
+//        单击关闭时，关闭服务器
+        btn_stop.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                try{
+                    closeServer();
+                    btn_start.setEnabled(true);
+                    btn_stop.setEnabled(false);
+                    txt_port.setEnabled(true);
+                    contentArea.append("成功关闭服务器\r\n");
+                }catch (Exception ex){
+                    contentArea.append("关闭服务器错误\r\n");
+                }
+            }
+        });
     }
 
     class ServerThread extends Thread {
-
-        int clientCount=0;
         public ServerThread(int port){
             try{
                 wSocket = new ServerSocket(port);
                 contentArea.append("服务器启动成功！监听端口："+port+"\r\n");
             }catch (Exception ex){
-                contentArea.append("服务器启动发生错误："+ex.getMessage()+"发向全员");
+                contentArea.append("服务器启动发生错误："+ex.getMessage()+"发向全员\r\n");
             }
             start();
         }
@@ -134,10 +163,10 @@ public class Server{
                 try {
                     DataOutputStream dout = new DataOutputStream( cSocket.getOutputStream() );
                 }catch (Exception ex){
-                    contentArea.append("获取输入流出错");
+                    contentArea.append("获取输入流出错\r\n");
                 }
                 // 为该连接创建一个新线程，之后忘记它
-                ForAClientThread forAClientThread = new ForAClientThread(cSocket,list);
+                forAClientThread = new ForAClientThread(cSocket,list);
             }
         }
     }
@@ -160,23 +189,23 @@ public class Server{
                 while (true) {
                     // ... 读取下一条信息 ...
                     String message = din.readUTF();
-
+//                    contentArea.append(message+"\r\n");
                     // ... 服务端发送它给所有的客户端
-                    send(list,message);
-//                    for(Object o:list){
-//                        Socket sc=(Socket)o;
-//                        DataOutputStream dout=new DataOutputStream(sc.getOutputStream());
-//                        dout.writeUTF(message + "(发向全员)");
-//                        System.out.println(message + "(发向全员)");
-//                    }
+                    if(message.equals("CLOSE")){
+                        clientCount--;
+                        contentArea.append(socket + "下线 当前在线的用户数: " + (clientCount-1)+"\r\n");
+                        socket.close();
+                    }
+                    else {
+                        send(list,message);
+                    }
                 }
             } catch (EOFException ie) {
                 // 不需要错误信息
             } catch (IOException ie) {
                 // 需要错误信息，输出至控制台
-                ie.printStackTrace();
+//                contentArea.append("服务器端获取用户信出错："+ie.getMessage()+"\r\n");
             } finally {
-                contentArea.append("服务器对单个客户端的连接出错");
             }
         }
 
@@ -194,5 +223,20 @@ public class Server{
             }
         }
     }
-}
 
+    void closeServer(){
+        try{
+            wSocket.close();
+        }catch (Exception ex){
+            contentArea.append("关闭服务器出错，请重新关闭\r\n");
+        }
+        for(Object o:list){
+            Socket sc=(Socket)o;
+            try {
+               sc.close();
+            }catch (Exception ex){
+                contentArea.append("关闭服务器线程出错，请重新关闭\r\n");
+            }
+        }
+    }
+}
